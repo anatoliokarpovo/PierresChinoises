@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>PIERRES CHINOISES - Jeu</title>
+<style>
+body { font-family: Arial; text-align: center; background:#222; color:white; }
+canvas { background:#d8b46a; margin-top:20px; border:3px solid #000; cursor:pointer; }
+button { margin-top:15px; padding:10px 20px; font-size:16px; }
+</style>
+</head>
+<body>
+
+<h1>Jeu PIERRES CHINOISES</h1>
+<p id="status">Phase de placement</p>
+<canvas id="board" width="400" height="400"></canvas><br>
+<button onclick="init()">Recommencer</button>
+
+<script>
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+const statusText = document.getElementById("status");
+
+const size = 4;
+const cell = canvas.width / size;
+
+let board, player, selected, gameOver;
+let phase, placed;
+
+function init() {
+  board = Array.from({length:size},()=>Array(size).fill(0));
+  player = 1;
+  selected = null;
+  gameOver = false;
+  phase = "placement";
+  placed = {1:0, 2:0};
+  statusText.innerText = "Placement : Joueur 1";
+  draw();
+}
+
+function cloneBoard(b){ return b.map(r=>r.slice()); }
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  
+  // Dessiner la grille
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 2;
+  for (let i=0; i<=size; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i*cell, 0);
+    ctx.lineTo(i*cell, canvas.height);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.moveTo(0, i*cell);
+    ctx.lineTo(canvas.width, i*cell);
+    ctx.stroke();
+  }
+  
+  // Dessiner les pierres
+  for (let y=0; y<size; y++){
+    for (let x=0; x<size; x++){
+      const centerX = x*cell + cell/2;
+      const centerY = y*cell + cell/2;
+      
+      if (board[y][x] !== 0) {
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, cell/2 - 5, 0, Math.PI*2);
+        ctx.fillStyle = board[y][x]===1 ? "#000" : "#fff";
+        ctx.fill();
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      
+      // Surligner la pierre sélectionnée
+      if (selected && selected.x === x && selected.y === y) {
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, cell/2 - 3, 0, Math.PI*2);
+        ctx.strokeStyle = "#ff0";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// ================= DETECTION MENACE =================
+function getThreats(b, p) {
+  let threats = [];
+
+  // LIGNES
+  for (let y=0; y<size; y++){
+    let row = b[y];
+    let count = row.filter(v=>v===p).length;
+    if (count===3) {
+      row.forEach((v,x)=>{
+        if (v===0) threats.push({x,y});
+      });
+    }
+  }
+
+  // COLONNES
+  for (let x=0; x<size; x++){
+    let count=0;
+    let empty=null;
+
+    for (let y=0; y<size; y++){
+      if (b[y][x]===p) count++;
+      if (b[y][x]===0) empty={x,y};
+    }
+
+    if (count===3 && empty) threats.push(empty);
+  }
+
+  return threats;
+}
+
+// ================= DETECTION VICTOIRE EN UN COUP =================
+function findWinningMove(b, p) {
+  let moves = getMoves(b, p);
+  
+  for (let move of moves) {
+    let testBoard = applyMove(b, move, p);
+    if (checkWin(testBoard, p)) {
+      return move;
+    }
+  }
+  
+  return null;
+}
+
+// ================= IA PLACEMENT =================
+function aiPlacement() {
+
+  // 1. BLOQUER JOUEUR EN PRIORITÉ
+  let threats = getThreats(board,1);
+  if (threats.length > 0) {
+    let t = threats[0];
+    board[t.y][t.x] = 2;
+    placed[2]++;
+    return;
+  }
+
+  // 2. GAGNER SI POSSIBLE
+  let winMoves = getThreats(board,2);
+  if (winMoves.length > 0) {
+    let w = winMoves[0];
+    board[w.y][w.x] = 2;
+    placed[2]++;
+    return;
+  }
+
+  // 3. HEURISTIQUE
+  let bestScore = -Infinity;
+  let bestMove = null;
+
+  for (let y=0; y<size; y++){
+    for (let x=0; x<size; x++){
+      if (board[y][x]===0){
+        let temp = cloneBoard(board);
+        temp[y][x] = 2;
+
+        let score = evaluatePlacement(temp, x, y);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = {x,y};
+        }
+      }
+    }
+  }
+
+  if (bestMove) {
+    board[bestMove.y][bestMove.x] = 2;
+    placed[2]++;
+  }
+}
+
+function evaluatePlacement(b, px, py) {
+  let score = 0;
+
+  // centre
+  if ((px===1||px===2)&&(py===1||py===2)) score += 10;
+
+  // alignement IA
+  for (let y=0; y<size; y++){
+    let count = b[y].filter(v=>v===2).length;
+    score += count * 3;
+  }
+
+  for (let x=0; x<size; x++){
+    let count=0;
+    for (let y=0; y<size; y++) if (b[y][x]===2) count++;
+    score += count * 3;
+  }
+
+  return score;
+}
+
+// ================= JEU =================
+function getMoves(b, p) {
+  let moves=[];
+  const dirs=[{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
+
+  for (let y=0; y<size; y++){
+    for (let x=0; x<size; x++){
+      if (b[y][x]===p){
+        for (let d of dirs){
+          let nx=x+d.dx, ny=y+d.dy;
+          if (nx>=0 && nx<size && ny>=0 && ny<size && b[ny][nx]===0){
+            moves.push({from:{x,y}, to:{x:nx,y:ny}});
+          }
+        }
+      }
+    }
+  }
+  return moves;
+}
+
+function applyMove(b,m,p){
+  let nb=cloneBoard(b);
+  nb[m.to.y][m.to.x]=p;
+  nb[m.from.y][m.from.x]=0;
+  return nb;
+}
+
+function checkWin(b,p){
+  // LIGNES
+  for(let y=0; y<size; y++){
+    if(b[y].every(v=>v===p)) return true;
+  }
+
+  // COLONNES
+  for(let x=0; x<size; x++){
+    let win=true;
+    for(let y=0; y<size; y++) if(b[y][x]!==p) win=false;
+    if(win) return true;
+  }
+
+  return false;
+}
+
+// IA jeu (minimax simple)
+function evaluate(b){
+  if(checkWin(b,2)) return 100;
+  if(checkWin(b,1)) return -100;
+  return 0;
+}
+
+function minimax(b,d,maximizing){
+  if(d===0||checkWin(b,1)||checkWin(b,2)) return evaluate(b);
+
+  if(maximizing){
+    let best=-Infinity;
+    for(let m of getMoves(b,2)){
+      best=Math.max(best,minimax(applyMove(b,m,2),d-1,false));
+    }
+    return best;
+  } else {
+    let best=Infinity;
+    for(let m of getMoves(b,1)){
+      best=Math.min(best,minimax(applyMove(b,m,1),d-1,true));
+    }
+    return best;
+  }
+}
+
+function aiMove(){
+  let moves=getMoves(board,2);
+  if(moves.length === 0) {
+    statusText.innerText="Pas de mouvements disponibles";
+    return;
+  }
+  
+  // 1. CHERCHER UNE VICTOIRE EN UN COUP
+  let winMove = findWinningMove(board, 2);
+  if (winMove) {
+    board = applyMove(board, winMove, 2);
+    statusText.innerText="Victoire IA !";
+    gameOver=true;
+    draw();
+    return;
+  }
+
+  // 2. BLOQUER UNE VICTOIRE DU JOUEUR EN UN COUP
+  let blockMove = findWinningMove(board, 1);
+  if (blockMove) {
+    board = applyMove(board, blockMove, 2);
+    if(checkWin(board,2)){
+      statusText.innerText="Victoire IA !";
+      gameOver=true;
+      draw();
+      return;
+    }
+    player=1;
+    statusText.innerText="Tour du joueur";
+    draw();
+    return;
+  }
+
+  // 3. SINON UTILISER MINIMAX
+  let bestScore=-Infinity;
+  let bestMove=moves[0];
+
+  for(let m of moves){
+    let score=minimax(applyMove(board,m,2),4,false);
+    if(score>bestScore){
+      bestScore=score;
+      bestMove=m;
+    }
+  }
+
+  board=applyMove(board,bestMove,2);
+
+  if(checkWin(board,2)){
+    statusText.innerText="Victoire IA !";
+    gameOver=true;
+    draw();
+    return;
+  }
+
+  player=1;
+  statusText.innerText="Tour du joueur";
+  draw();
+}
+
+// ================= EVENTS =================
+canvas.addEventListener("click", e=>{
+  if(gameOver) return;
+
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/cell);
+  const y=Math.floor((e.clientY-rect.top)/cell);
+
+  if(phase==="placement"){
+    if(board[y][x]===0){
+      board[y][x]=1;
+      placed[1]++;
+
+      player=2;
+      aiPlacement();
+
+      if(placed[1]===4 && placed[2]===4){
+        phase="jeu";
+        player=1;
+        statusText.innerText="Début du jeu";
+      }
+
+      draw();
+    }
+    return;
+  }
+
+  if(player!==1) return;
+
+  if(selected){
+    let moves=getMoves(board,1);
+    let valid=moves.find(m=>m.from.x===selected.x && m.from.y===selected.y && m.to.x===x && m.to.y===y);
+
+    if(valid){
+      board=applyMove(board,valid,1);
+      selected=null;
+
+      if(checkWin(board,1)){
+        statusText.innerText="Victoire joueur !";
+        gameOver=true;
+        draw();
+        return;
+      }
+
+      player=2;
+      statusText.innerText="Tour IA";
+      draw();
+      setTimeout(aiMove,300);
+    } else {
+      selected=null;
+      draw();
+    }
+  } else if(board[y][x]===1){
+    selected={x,y};
+    draw();
+  }
+});
+
+init();
+</script>
+
+</body>
+</html>
