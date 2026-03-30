@@ -285,19 +285,30 @@ function aiMove(){
   }
 
   // 2. BLOQUER UNE VICTOIRE DU JOUEUR EN UN COUP
-  let blockMove = findWinningMove(board, 1);
-  if (blockMove) {
-    board = applyMove(board, blockMove, 2);
-    if(checkWin(board,2)){
-      statusText.innerText="Victoire IA !";
-      gameOver=true;
-      draw();
-      return;
+  let playerWinMoves = getMoves(board, 1);
+  for (let m of playerWinMoves) {
+    let testBoard = applyMove(board, m, 1);
+    if (checkWin(testBoard, 1)) {
+      // Le joueur peut gagner avec ce mouvement, on le bloque
+      let blockMove = {from: m.to, to: m.from};
+      
+      // Vérifier que le mouvement de blocage est valide pour l'IA
+      let aiMoves = getMoves(board, 2);
+      let validBlock = aiMoves.find(move => 
+        move.from.x === blockMove.from.x && 
+        move.from.y === blockMove.from.y && 
+        move.to.x === blockMove.to.x && 
+        move.to.y === blockMove.to.y
+      );
+      
+      if (validBlock) {
+        board = applyMove(board, validBlock, 2);
+        player = 1;
+        statusText.innerText = "Tour du joueur";
+        draw();
+        return;
+      }
     }
-    player=1;
-    statusText.innerText="Tour du joueur";
-    draw();
-    return;
   }
 
   // 3. SINON UTILISER MINIMAX
